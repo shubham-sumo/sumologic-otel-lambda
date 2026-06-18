@@ -1,0 +1,106 @@
+name: Release Finalize
+
+on:
+  workflow_run:
+    workflows:
+      - "Release Build - Java"
+      - "Release Build - NodeJS"
+      - "Release Build - Python"
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  finalize:
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Extract tag and language
+        id: parse
+        run: |
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          LANGUAGE="${TAG%%-v*}"
+          VERSION="${TAG#"${LANGUAGE}"-v}"
+          RELEASE_BRANCH="release-${TAG}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "language=${LANGUAGE}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "release_branch=${RELEASE_BRANCH}" \
+            >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create release branch
+        run: |
+          git checkout -b \
+            "${{ steps.parse.outputs.release_branch }}"
+
+      - name: Update README with ARN tables
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          LANGUAGE: ${{ steps.parse.outputs.language }}
+          VERSION: ${{ steps.parse.outputs.version }}
+        run: ./ci/release-finalize.sh
+
+      - uses: actions/setup-node@v4
+
+      - name: Format markdown tables
+        env:
+          LANGUAGE: ${{ steps.parse.outputs.language }}
+        run: |
+          npm install --no-save markdown-table-formatter
+          ./node_modules/.bin/markdown-table-formatter \
+            "${LANGUAGE}/README.md"
+
+      - name: Commit changes
+        env:
+          TAG: ${{ steps.parse.outputs.tag }}
+          LANGUAGE: ${{ steps.parse.outputs.language }}
+        run: |
+          git add "${LANGUAGE}/README.md"
+          git commit -m \
+            "docs: update ${LANGUAGE} layer ARNs for ${TAG}"
+
+      - name: Push release branch
+        env:
+          REMOTE: >-
+            https://x-access-token:${{ secrets.RELEASE_PAT
+            }}@github.com/${{ github.repository }}
+        run: |
+          git remote set-url origin "${REMOTE}"
+          git push origin \
+            "${{ steps.parse.outputs.release_branch }}"
+
+      - name: Create pull request
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          TAG: ${{ steps.parse.outputs.tag }}
+          LANGUAGE: ${{ steps.parse.outputs.language }}
+          RELEASE_BRANCH: >-
+            ${{ steps.parse.outputs.release_branch }}
+        run: |
+          REPO="${GITHUB_REPOSITORY}"
+          BODY="Updates \`${LANGUAGE}/README.md\` with layer ARNs "
+          BODY+="from the [pre-release]"
+          BODY+="(https://github.com/${REPO}/releases/tag/${TAG})."
+          BODY+=$'\n\n'
+          BODY+="Merging promotes the pre-release to a full release."
+          gh pr create \
+            --title "docs: release ${TAG}" \
+            --body "${BODY}" \
+            --base main \
+            --head "${RELEASE_BRANCH}"
