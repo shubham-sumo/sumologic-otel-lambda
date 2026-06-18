@@ -47,11 +47,15 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Check release tag does not already exist
+      - name: Check release tag and branch do not already exist
         run: |
           TAG="${LANGUAGE}-v${VERSION}"
           if git tag --list "${TAG}" | grep -q .; then
             echo "::error::Tag ${TAG} already exists"
+            exit 1
+          fi
+          if git ls-remote --heads origin "${BRANCH}" | grep -q .; then
+            echo "::error::Branch ${BRANCH} already exists on remote"
             exit 1
           fi
 
