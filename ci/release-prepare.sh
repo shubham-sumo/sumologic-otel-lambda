@@ -13,7 +13,15 @@ DATE="$(date +%Y-%m-%d)"
 LAYER_DATA="${LANGUAGE}/layer-data.sh"
 TEMPLATE="${LANGUAGE}/sample-apps/template.yaml"
 
+# Clean up .bak files on exit (including early exits)
+cleanup() { find . -maxdepth 3 -name '*.bak' -delete; }
+trap cleanup EXIT
+
 OLD_VERSION_DASHED=$(grep '^VERSION=' "${LAYER_DATA}" | cut -d= -f2)
+if [[ -z "${OLD_VERSION_DASHED}" ]]; then
+  echo "ERROR: could not extract VERSION from ${LAYER_DATA}" >&2
+  exit 1
+fi
 
 # --- Update CHANGELOG.md ---
 
@@ -30,8 +38,11 @@ cat > /tmp/changelog_block.md <<EOF
 [${TAG}]: https://github.com/SumoLogic/sumologic-otel-lambda/releases/tag/${TAG}
 EOF
 
+if ! grep -q '^All notable changes' CHANGELOG.md; then
+  echo "ERROR: could not find 'All notable changes' header in CHANGELOG.md" >&2
+  exit 1
+fi
 sed -i.bak "/^All notable changes/r /tmp/changelog_block.md" CHANGELOG.md
-rm -f CHANGELOG.md.bak
 
 # --- Update layer-data.sh ---
 
@@ -41,17 +52,18 @@ sed -i.bak \
   "s|tree/[^/]*/\{0,1\}${LANGUAGE}|tree/${RELEASE_BRANCH}/${LANGUAGE}|" \
   "${LAYER_DATA}"
 
-rm -f "${LAYER_DATA}.bak"
-
 # --- Update template.yaml ---
 
 sed -i.bak "s|${OLD_VERSION_DASHED}|${VERSION_DASHED}|g" "${TEMPLATE}"
-rm -f "${TEMPLATE}.bak"
 
 # --- Detect component versions from submodule ---
 
 COLLECTOR_VERSION=$(grep "go.opentelemetry.io/collector/otelcol v" \
   opentelemetry-lambda/collector/go.mod | awk '{print $2}')
+if [[ -z "${COLLECTOR_VERSION}" ]]; then
+  echo "ERROR: could not extract COLLECTOR_VERSION from collector/go.mod" >&2
+  exit 1
+fi
 
 case "${LANGUAGE}" in
   python)
@@ -61,16 +73,33 @@ case "${LANGUAGE}" in
     INSTRUMENTATION_VERSION=$(grep "^opentelemetry-distro==" \
       opentelemetry-lambda/python/src/otel/otel_sdk/requirements.txt \
       | cut -d= -f3)
+    if [[ -z "${SDK_VERSION}" ]]; then
+      echo "ERROR: could not extract opentelemetry-sdk version from requirements.txt" >&2
+      exit 1
+    fi
+    if [[ -z "${INSTRUMENTATION_VERSION}" ]]; then
+      echo "ERROR: could not extract opentelemetry-distro version from requirements.txt" >&2
+      exit 1
+    fi
     ;;
   nodejs)
-    SDK_VERSION=v$(grep -A2 '"node_modules/@opentelemetry/sdk-trace-node"' \
+    # Extract version from the resolved field which is stable across npm lock formats
+    SDK_VERSION=v$(grep -A5 '"node_modules/@opentelemetry/sdk-trace-node"' \
       opentelemetry-lambda/nodejs/package-lock.json \
-      | grep '"version"' | grep -o '[0-9][0-9.]*')
+      | grep '"version"' | grep -o '[0-9][0-9.]*' | head -1)
+    if [[ "${SDK_VERSION}" == "v" ]]; then
+      echo "ERROR: could not extract @opentelemetry/sdk-trace-node version from package-lock.json" >&2
+      exit 1
+    fi
     ;;
   java)
     SDK_VERSION=$(grep 'opentelemetry-javaagent:' \
       opentelemetry-lambda/java/dependencyManagement/build.gradle.kts \
       | grep -o '[0-9][0-9.]*' | head -1)
+    if [[ -z "${SDK_VERSION}" ]]; then
+      echo "ERROR: could not extract opentelemetry-javaagent version from build.gradle.kts" >&2
+      exit 1
+    fi
     ;;
 esac
 
@@ -95,7 +124,5 @@ case "${LANGUAGE}" in
     sed -i.bak "/Java wrapper/s|Collector \`v[^\`]*\`|Collector \`${COLLECTOR_VERSION}\`|" README.md
     ;;
 esac
-
-rm -f README.md.bak
 
 echo "Release preparation complete for ${TAG}"

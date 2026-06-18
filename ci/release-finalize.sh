@@ -53,6 +53,11 @@ if not arm64_table:
 with open(readme_path) as f:
     content = f.read()
 
+if "unreleased version" not in content:
+    print(f"ERROR: 'unreleased version' not found in {readme_path}",
+          file=sys.stderr)
+    sys.exit(1)
+
 content = re.sub(
     r"unreleased version",
     f"v{version}",
@@ -64,8 +69,10 @@ def replace_section(text, heading, new_table):
     lines = text.splitlines()
     result = []
     skip = False
+    found = False
     for line in lines:
         if line.strip().startswith("##") and heading.lower() in line.lower():
+            found = True
             result.append(line)
             result.append("")
             result.append(new_table)
@@ -78,6 +85,10 @@ def replace_section(text, heading, new_table):
                 result.append(line)
             continue
         result.append(line)
+    if not found:
+        print(f"ERROR: heading '{heading}' not found in {readme_path}",
+              file=sys.stderr)
+        sys.exit(1)
     return "\n".join(result)
 
 content = replace_section(content, "AMD64 Lambda Layers List", amd64_table)
