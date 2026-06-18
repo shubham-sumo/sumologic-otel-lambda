@@ -33,7 +33,6 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          persist-credentials: false
           ref: main
           fetch-depth: 0
 
@@ -76,18 +75,11 @@ jobs:
             "docs: update ${LANGUAGE} layer ARNs for ${TAG}"
 
       - name: Push release branch
-        env:
-          REMOTE: >-
-            https://x-access-token:${{ secrets.RELEASE_PAT
-            }}@github.com/${{ github.repository }}
-        run: |
-          git remote set-url origin "${REMOTE}"
-          git push origin \
-            "${{ steps.parse.outputs.release_branch }}"
+        run: git push origin "${{ steps.parse.outputs.release_branch }}"
 
       - name: Create pull request
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.parse.outputs.tag }}
           LANGUAGE: ${{ steps.parse.outputs.language }}
           RELEASE_BRANCH: >-
