@@ -23,6 +23,7 @@ on:
 permissions:
   contents: read
   actions: write
+  pull-requests: read
 
 jobs:
   check:
@@ -100,13 +101,13 @@ jobs:
             echo "Latest upstream: ${LATEST_UPSTREAM}"
 
             VERSION_FILE="${LANGUAGE}/version.txt"
-            CURRENT_VER=$(sed -n '1p' "${VERSION_FILE}" | tr -d '[:space:]')
-            LAST_PROCESSED=$(sed -n '2p' "${VERSION_FILE}" | tr -d '[:space:]')
+            CURRENT_VER=$(grep '^current_version=' "${VERSION_FILE}" | cut -d= -f2-)
+            LAST_PROCESSED=$(grep '^upstream_release_tag=' "${VERSION_FILE}" | cut -d= -f2-)
             echo "Current version: ${CURRENT_VER}"
             echo "Last processed upstream: ${LAST_PROCESSED}"
 
             if [[ -z "${CURRENT_VER}" || -z "${LAST_PROCESSED}" ]]; then
-              echo "ERROR: could not read version.txt for ${LANGUAGE}"
+              echo "ERROR: could not read named values from ${VERSION_FILE}"
               continue
             fi
 
@@ -124,12 +125,13 @@ jobs:
 
             echo "New release detected: ${LATEST_UPSTREAM} > ${LAST_PROCESSED}"
 
-            EXISTING_BRANCH=$(
-              git ls-remote --heads origin "refs/heads/prepare-${LANGUAGE}-v*" \
-              | head -1 || true
-            )
-            if [[ -n "${EXISTING_BRANCH}" ]]; then
-              echo "Skipping ${LANGUAGE}: prepare branch already exists"
+            EXISTING_PR=$(gh pr list \
+              --state open \
+              --base main \
+              --json number,headRefName \
+              --jq "map(select(.headRefName | startswith(\"prepare-${LANGUAGE}-v\")))[0].number // empty")
+            if [[ -n "${EXISTING_PR}" ]]; then
+              echo "Skipping ${LANGUAGE}: open prepare PR #${EXISTING_PR} exists"
               continue
             fi
 
@@ -138,14 +140,14 @@ jobs:
 
             if [[ "${DRY_RUN}" == "true" ]]; then
               echo "[DRY RUN] Would trigger release-prepare for ${LANGUAGE} v${NEXT_VER} with tag ${LATEST_UPSTREAM}"
-            else
-              echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
-              gh workflow run release-prepare.yml \
-                -f language="${LANGUAGE}" \
-                -f version="${NEXT_VER}" \
-                -f otel_lambda_tag="${LATEST_UPSTREAM}"
+              continue
             fi
 
+            echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
+            gh workflow run release-prepare.yml \
+              -f language="${LANGUAGE}" \
+              -f version="${NEXT_VER}" \
+              -f otel_lambda_tag="${LATEST_UPSTREAM}"
             TRIGGERED+=("${LANGUAGE}-v${NEXT_VER}")
           done
 
@@ -155,5 +157,5 @@ jobs:
             printf '  %s\n' "${TRIGGERED[@]}"
           else
             echo ""
-            echo "=== No new releases detected ==="
+            echo "=== No release workflows triggered ==="
           fi

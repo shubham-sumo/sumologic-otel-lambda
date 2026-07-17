@@ -27,6 +27,10 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: release-prepare-${{ inputs.language }}
+  cancel-in-progress: false
+
 jobs:
   prepare:
     runs-on: ubuntu-22.04
@@ -36,10 +40,25 @@ jobs:
       OTEL_LAMBDA_TAG: ${{ inputs.otel_lambda_tag }}
       BRANCH: prepare-${{ inputs.language }}-v${{ inputs.version }}
     steps:
-      - name: Validate version format
+      - name: Validate inputs
         run: |
-          if ! [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Version must be semver without v prefix (e.g. 1.41.0)"
+            exit 1
+          fi
+
+          case "${LANGUAGE}" in
+            java) EXPECTED_PREFIX="layer-javaagent/" ;;
+            nodejs) EXPECTED_PREFIX="layer-nodejs/" ;;
+            python) EXPECTED_PREFIX="layer-python/" ;;
+            *)
+              echo "::error::Unsupported language: ${LANGUAGE}"
+              exit 1
+              ;;
+          esac
+
+          if [[ "${OTEL_LAMBDA_TAG}" != "${EXPECTED_PREFIX}"* ]]; then
+            echo "::error::${LANGUAGE} requires an upstream tag starting with ${EXPECTED_PREFIX}"
             exit 1
           fi
 
@@ -47,6 +66,15 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+
+      - name: Verify upstream release tag exists
+        run: |
+          if ! git ls-remote --exit-code --tags \
+            https://github.com/open-telemetry/opentelemetry-lambda.git \
+            "refs/tags/${OTEL_LAMBDA_TAG}" >/dev/null; then
+            echo "::error::Upstream tag ${OTEL_LAMBDA_TAG} does not exist"
+            exit 1
+          fi
 
       - name: Check release tag and branch do not already exist
         run: |
@@ -69,15 +97,6 @@ jobs:
       - name: Create branch
         run: git checkout -b "${BRANCH}"
 
-      - name: Update submodule to otel-lambda release
-        id: submodule
-        run: |
-          cd opentelemetry-lambda
-          git fetch --tags origin
-          git checkout "${{ inputs.otel_lambda_tag }}"
-          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-          cd ..
-
       - name: Run prepare script
         run: ./ci/release-prepare.sh
 
@@ -86,10 +105,9 @@ jobs:
           git add \
             "changelog/${LANGUAGE}-v${VERSION}.md" \
             "${LANGUAGE}/version.txt" \
-            README.md \
             "${LANGUAGE}/layer-data.sh" \
             "${LANGUAGE}/sample-apps/template.yaml" \
-            opentelemetry-lambda
+            README.md
           COMMIT_MSG="feat: prepare release ${LANGUAGE} v${VERSION}"
           git commit -m "${COMMIT_MSG}"
 
@@ -109,34 +127,42 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          SUBMODULE_COMMIT="${{ steps.submodule.outputs.commit }}"
           UPSTREAM_REPO="https://github.com/open-telemetry/opentelemetry-lambda"
           gh pr create \
             --title "feat: prepare release ${LANGUAGE} v${VERSION}" \
             --body "$(cat <<BODY
           Automated release preparation for \`${LANGUAGE}-v${VERSION}\`.
 
-          ### Submodule reference
+          ### Release metadata
 
-          - **Tag:** [\`${{ inputs.otel_lambda_tag }}\`](${UPSTREAM_REPO}/releases/tag/${{ inputs.otel_lambda_tag }})
-          - **Commit:** [\`${SUBMODULE_COMMIT:0:12}\`](${UPSTREAM_REPO}/commit/${SUBMODULE_COMMIT})
+          - **Upstream release tag:** [\`${OTEL_LAMBDA_TAG}\`](${UPSTREAM_REPO}/releases/tag/${OTEL_LAMBDA_TAG})
+          - **Submodule pinning:** deferred; this PR records the upstream release tag but does not change \`opentelemetry-lambda\`
+
+          ### Changes in this PR
+
+          - \`${LANGUAGE}/version.txt\` — records the current release version and upstream release tag
+          - \`${LANGUAGE}/layer-data.sh\` — updates the layer version and release branch link
+          - \`${LANGUAGE}/sample-apps/template.yaml\` — updates the sample layer version
+          - \`README.md\` — updates the latest layer link and detected component versions
+          - \`changelog/${LANGUAGE}-v${VERSION}.md\` — adds the release changelog fragment
 
           ### Pre-merge checklist
 
-          - [ ] Edit \`changelog/${LANGUAGE}-v${VERSION}.md\` with actual changelog content
-          - [ ] Verify \`${LANGUAGE}/layer-data.sh\` version
-          - [ ] Verify \`${LANGUAGE}/sample-apps/template.yaml\` version
-          - [ ] Verify README.md component versions
+          - [ ] Replace the TODO in \`changelog/${LANGUAGE}-v${VERSION}.md\` with the release changes
+          - [ ] Verify \`${LANGUAGE}/version.txt\` metadata
+          - [ ] Verify \`${LANGUAGE}/layer-data.sh\` and \`${LANGUAGE}/sample-apps/template.yaml\`
+          - [ ] Verify \`README.md\` component versions and release link
           - [ ] Approve this PR
 
           ### What happens automatically after merge
 
-          1. **Tag created** — \`${LANGUAGE}-v${VERSION}\` is pushed to this repo
-          2. **Changelog assembled** — \`changelog/${LANGUAGE}-v${VERSION}.md\` is merged into \`CHANGELOG.md\` and the fragment file is removed
-          3. **Release build triggered** — layers are built and published to all AWS regions
-          4. **Pre-release created** — a GitHub pre-release is created with layer ARNs and container artifacts
-          5. **Release branch PR** — a \`release-${LANGUAGE}-v${VERSION}\` branch is created with updated ARN tables in \`${LANGUAGE}/README.md\`
-          6. **After release branch PR is merged** — the pre-release is promoted to a full release
+          1. **Changelog assembled** — the fragment is inserted into \`CHANGELOG.md\` and deleted
+          2. **Tag created** — \`${LANGUAGE}-v${VERSION}\` is created from the assembled changelog commit
+          3. **Release build dispatched** — the matching language workflow runs at the release tag
+          4. **Layers published** — layer artifacts are built and published to supported AWS regions
+          5. **Pre-release created** — GitHub receives the reviewed changelog, ARN tables, and artifacts
+          6. **Release PR created** — \`release-${LANGUAGE}-v${VERSION}\` updates \`${LANGUAGE}/README.md\` with published ARNs
+          7. **Release promoted** — merging that release PR converts the pre-release to a full release
           BODY
           )" \
             --base main \

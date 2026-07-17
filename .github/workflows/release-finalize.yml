@@ -1,53 +1,88 @@
 name: Release Finalize
 
 on:
-  workflow_run:
-    workflows:
-      - "Release Build - Java"
-      - "Release Build - NodeJS"
-      - "Release Build - Python"
-    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to finalize"
+        required: true
+        type: string
 
 permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: release-finalize-${{ inputs.tag }}
+  cancel-in-progress: false
+
 jobs:
   finalize:
-    if: >-
-      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-22.04
     steps:
-      - name: Extract tag and language
+      - name: Extract release details
         id: parse
+        env:
+          TAG: ${{ inputs.tag }}
         run: |
-          TAG="${{ github.event.workflow_run.head_branch }}"
-          LANGUAGE="${TAG%%-v*}"
-          VERSION="${TAG#"${LANGUAGE}"-v}"
-          RELEASE_BRANCH="release-${TAG}"
+          if ! [[ "${TAG}" =~ ^(java|nodejs|python)-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Unexpected release tag: ${TAG}"
+            exit 1
+          fi
+
+          LANGUAGE="${BASH_REMATCH[1]}"
+          VERSION="${BASH_REMATCH[2]}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "language=${LANGUAGE}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "release_branch=${RELEASE_BRANCH}" \
-            >> "$GITHUB_OUTPUT"
+          echo "release_branch=release-${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Check for existing release pull request
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
+        run: |
+          PR_URL=$(gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --state all \
+            --base main \
+            --head "${RELEASE_BRANCH}" \
+            --json url \
+            --jq '.[0].url // empty')
+          if [[ -n "${PR_URL}" ]]; then
+            echo "Release pull request already exists or was completed: ${PR_URL}"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/checkout@v4
+        if: steps.existing.outputs.skip != 'true'
         with:
           ref: main
           fetch-depth: 0
 
       - name: Configure git
+        if: steps.existing.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
             "github-actions[bot]@users.noreply.github.com"
 
       - name: Create release branch
+        if: steps.existing.outputs.skip != 'true'
+        env:
+          RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
         run: |
-          git checkout -b \
-            "${{ steps.parse.outputs.release_branch }}"
+          if git ls-remote --exit-code --heads origin "${RELEASE_BRANCH}"; then
+            echo "::error::Branch ${RELEASE_BRANCH} exists without an open PR"
+            exit 1
+          fi
+          git checkout -b "${RELEASE_BRANCH}"
 
       - name: Update README with ARN tables
+        if: steps.existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.parse.outputs.tag }}
@@ -56,8 +91,10 @@ jobs:
         run: ./ci/release-finalize.sh
 
       - uses: actions/setup-node@v4
+        if: steps.existing.outputs.skip != 'true'
 
       - name: Format markdown tables
+        if: steps.existing.outputs.skip != 'true'
         env:
           LANGUAGE: ${{ steps.parse.outputs.language }}
         run: |
@@ -65,25 +102,24 @@ jobs:
           ./node_modules/.bin/markdown-table-formatter \
             "${LANGUAGE}/README.md"
 
-      - name: Commit changes
+      - name: Commit and push release branch
+        if: steps.existing.outputs.skip != 'true'
         env:
           TAG: ${{ steps.parse.outputs.tag }}
           LANGUAGE: ${{ steps.parse.outputs.language }}
+          RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
         run: |
           git add "${LANGUAGE}/README.md"
-          git commit -m \
-            "docs: update ${LANGUAGE} layer ARNs for ${TAG}"
-
-      - name: Push release branch
-        run: git push origin "${{ steps.parse.outputs.release_branch }}"
+          git commit -m "docs: update ${LANGUAGE} layer ARNs for ${TAG}"
+          git push origin "${RELEASE_BRANCH}"
 
       - name: Create pull request
+        if: steps.existing.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.parse.outputs.tag }}
           LANGUAGE: ${{ steps.parse.outputs.language }}
-          RELEASE_BRANCH: >-
-            ${{ steps.parse.outputs.release_branch }}
+          RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
         run: |
           REPO="${GITHUB_REPOSITORY}"
           BODY="Updates \`${LANGUAGE}/README.md\` with layer ARNs "

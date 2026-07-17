@@ -39,9 +39,10 @@ cat > "changelog/${TAG}.md" <<EOF
 [${TAG}]: https://github.com/SumoLogic/sumologic-otel-lambda/releases/tag/${TAG}
 EOF
 
-# --- Update version.txt (line 1: our version, line 2: upstream tag) ---
+# --- Update version.txt ---
 
-printf '%s\n%s\n' "${VERSION}" "${OTEL_LAMBDA_TAG}" > "${VERSION_FILE}"
+printf 'current_version=%s\nupstream_release_tag=%s\n' \
+  "${VERSION}" "${OTEL_LAMBDA_TAG}" > "${VERSION_FILE}"
 
 # --- Update layer-data.sh ---
 
