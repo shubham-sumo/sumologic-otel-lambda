@@ -107,6 +107,7 @@ jobs:
             "${LANGUAGE}/version.txt" \
             "${LANGUAGE}/layer-data.sh" \
             "${LANGUAGE}/sample-apps/template.yaml" \
+            "${LANGUAGE}/README.md" \
             README.md
           COMMIT_MSG="feat: prepare release ${LANGUAGE} v${VERSION}"
           git commit -m "${COMMIT_MSG}"
@@ -143,6 +144,7 @@ jobs:
           - \`${LANGUAGE}/version.txt\` — records the current release version and upstream release tag
           - \`${LANGUAGE}/layer-data.sh\` — updates the layer version and release branch link
           - \`${LANGUAGE}/sample-apps/template.yaml\` — updates the sample layer version
+          - \`${LANGUAGE}/README.md\` — updates the release version in the title
           - \`README.md\` — updates the latest layer link and detected component versions
           - \`changelog/${LANGUAGE}-v${VERSION}.md\` — adds the release changelog fragment
 
@@ -151,6 +153,7 @@ jobs:
           - [ ] Replace the TODO in \`changelog/${LANGUAGE}-v${VERSION}.md\` with the release changes
           - [ ] Verify \`${LANGUAGE}/version.txt\` metadata
           - [ ] Verify \`${LANGUAGE}/layer-data.sh\` and \`${LANGUAGE}/sample-apps/template.yaml\`
+          - [ ] Verify the version in the title of \`${LANGUAGE}/README.md\`
           - [ ] Verify \`README.md\` component versions and release link
           - [ ] Approve this PR
 
@@ -158,11 +161,9 @@ jobs:
 
           1. **Changelog assembled** — the fragment is inserted into \`CHANGELOG.md\` and deleted
           2. **Tag created** — \`${LANGUAGE}-v${VERSION}\` is created from the assembled changelog commit
-          3. **Release build dispatched** — the matching language workflow runs at the release tag
-          4. **Layers published** — layer artifacts are built and published to supported AWS regions
-          5. **Pre-release created** — GitHub receives generated release notes, ARN tables, and artifacts
-          6. **Release branch pushed** — \`release-${LANGUAGE}-v${VERSION}\` updates the version in the title of \`${LANGUAGE}/README.md\`; no PR is opened
-          7. **Manual promotion** — after reviewing the pre-release and release branch, promote the pre-release from the GitHub Releases page
+          3. **Release tag pushed** — the tag is pushed after changelog assembly
+          4. **Build remains separate** — the unchanged release-build workflow is tag-push-only and is not automatically started by the GitHub token used here
+          5. **Manual promotion** — after the existing release build creates the pre-release, review and promote it from the GitHub Releases page
           BODY
           )" \
             --base main \

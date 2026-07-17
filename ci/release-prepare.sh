@@ -14,6 +14,7 @@ DATE="$(date +%Y-%m-%d)"
 LAYER_DATA="${LANGUAGE}/layer-data.sh"
 TEMPLATE="${LANGUAGE}/sample-apps/template.yaml"
 VERSION_FILE="${LANGUAGE}/version.txt"
+LANGUAGE_README="${LANGUAGE}/README.md"
 
 cleanup() { find . -maxdepth 3 -name '*.bak' -delete; }
 trap cleanup EXIT
@@ -101,6 +102,33 @@ case "${LANGUAGE}" in
     fi
     ;;
 esac
+
+# --- Update language README.md ---
+
+python3 - "${LANGUAGE_README}" "${VERSION}" <<'PYEOF'
+import re
+import sys
+
+readme_path = sys.argv[1]
+version = sys.argv[2]
+
+with open(readme_path) as f:
+    content = f.read()
+
+pattern = re.compile(
+    r"^(# .*?)(?:unreleased version|v\d+\.\d+\.\d+)(.*)$",
+    re.MULTILINE,
+)
+if not pattern.search(content):
+    print(f"ERROR: release version not found in title of {readme_path}",
+          file=sys.stderr)
+    sys.exit(1)
+
+content = pattern.sub(rf"\g<1>v{version}\g<2>", content, count=1)
+
+with open(readme_path, "w") as f:
+    f.write(content)
+PYEOF
 
 # --- Update root README.md ---
 

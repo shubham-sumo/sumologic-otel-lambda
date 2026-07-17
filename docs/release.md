@@ -45,6 +45,7 @@ The workflow opens `prepare-<language>-v<version>` with these changes:
 - `<language>/version.txt`
 - `<language>/layer-data.sh`
 - `<language>/sample-apps/template.yaml`
+- `<language>/README.md`
 - root `README.md`
 
 The changelog fragment prevents concurrent release preparations from editing
@@ -54,8 +55,9 @@ The changelog fragment prevents concurrent release preparations from editing
 2. Verify the named values in `<language>/version.txt`.
 3. Verify the layer version in `<language>/layer-data.sh`.
 4. Verify the layer version in `<language>/sample-apps/template.yaml`.
-5. Verify the root README release link and component versions.
-6. Resolve any normal pull-request conflict, including a shared root README
+5. Verify the version in the title of `<language>/README.md`.
+6. Verify the root README release link and component versions.
+7. Resolve any normal pull-request conflict, including a shared root README
    conflict caused by another release merged on the same day.
 
 Only one open prepare pull request is allowed per language. An open Java
@@ -70,26 +72,17 @@ Merging a prepare pull request triggers the following sequence:
    `CHANGELOG.md` and deletes the fragment.
 3. It commits the assembled changelog and creates
    `<language>-v<version>` at that commit.
-4. It explicitly dispatches the matching language build workflow at the tag.
-   The dispatch-capable build workflows must already be present on `main` before
-   the first automated release is merged.
-5. The build workflow identifies the previous tag for the same language and
-   asks GitHub to generate release notes for that tag range. It creates
-   artifacts, publishes Lambda layers, and creates a GitHub pre-release with
-   those generated notes and the layer ARN tables. The reviewed changelog
-   fragment remains the source for the repository `CHANGELOG.md`.
-6. A successful build creates and pushes `release-<language>-v<version>`.
-   That branch updates the language README title from `unreleased version` (or
-   its previous version) to the new version. No pull request is opened for this
-   branch.
-7. Review the pre-release and the pushed release branch. The GitHub release
-   remains a pre-release.
-8. When ready to publish, open the pre-release on the GitHub Releases page,
+4. It pushes the release tag. Because this push uses `GITHUB_TOKEN`, it does
+   not automatically start the unchanged tag-push-only release-build workflow.
+5. Start the existing release-build workflow through the repository's current
+   release procedure. It creates artifacts, publishes Lambda layers, and
+   creates a GitHub pre-release containing the ARN tables and release artifacts.
+6. Review the pre-release. The GitHub release remains a pre-release.
+7. When ready to publish, open the pre-release on the GitHub Releases page,
    edit it, clear the pre-release setting, mark it as the latest release, and
    publish it.
 
-Finalization is idempotent: rerunning it does not recreate an existing release
-branch. Final promotion is a manual GitHub UI step.
+Final promotion is a manual GitHub UI step.
 
 ## Recovery
 
@@ -97,10 +90,7 @@ branch. Final promotion is a manual GitHub UI step.
   `Release Prepare` again.
 - If changelog assembly fails, restore or correct the expected fragment or the
   `All notable changes` anchor before rerunning the merge-triggered workflow.
-- If a tag exists but its build did not start, dispatch the matching
-  `release-build-<language>.yml` workflow using the release tag as its ref.
-- If release-branch finalization fails, dispatch `release-finalize.yml` with
-  the release tag after correcting the failure.
+- If a tag exists but its build did not start, use the repository's current
+  release procedure to start the existing tag-push-only build workflow.
 
-Do not promote the pre-release before the pre-release contents and generated
-release branch have been reviewed.
+Do not promote the pre-release before its contents have been reviewed.
