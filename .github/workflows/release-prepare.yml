@@ -84,7 +84,6 @@ jobs:
       - name: Commit changes
         run: |
           git add \
-            ".github/upstream-release-${LANGUAGE}.txt" \
             "changelog/${LANGUAGE}-v${VERSION}.md" \
             "${LANGUAGE}/version.txt" \
             README.md \

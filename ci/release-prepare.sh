@@ -14,7 +14,6 @@ DATE="$(date +%Y-%m-%d)"
 LAYER_DATA="${LANGUAGE}/layer-data.sh"
 TEMPLATE="${LANGUAGE}/sample-apps/template.yaml"
 VERSION_FILE="${LANGUAGE}/version.txt"
-TRACKING_FILE=".github/upstream-release-${LANGUAGE}.txt"
 
 cleanup() { find . -maxdepth 3 -name '*.bak' -delete; }
 trap cleanup EXIT
@@ -40,13 +39,9 @@ cat > "changelog/${TAG}.md" <<EOF
 [${TAG}]: https://github.com/SumoLogic/sumologic-otel-lambda/releases/tag/${TAG}
 EOF
 
-# --- Update version.txt ---
+# --- Update version.txt (line 1: our version, line 2: upstream tag) ---
 
-echo "${VERSION}" > "${VERSION_FILE}"
-
-# --- Update upstream tracking (per-language file, no conflicts) ---
-
-echo "${OTEL_LAMBDA_TAG}" > "${TRACKING_FILE}"
+printf '%s\n%s\n' "${VERSION}" "${OTEL_LAMBDA_TAG}" > "${VERSION_FILE}"
 
 # --- Update layer-data.sh ---
 

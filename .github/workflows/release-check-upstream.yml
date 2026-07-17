@@ -99,9 +99,16 @@ jobs:
             fi
             echo "Latest upstream: ${LATEST_UPSTREAM}"
 
-            TRACKING_FILE=".github/upstream-release-${LANGUAGE}.txt"
-            LAST_PROCESSED=$(cat "${TRACKING_FILE}" | tr -d '[:space:]')
-            echo "Last processed: ${LAST_PROCESSED}"
+            VERSION_FILE="${LANGUAGE}/version.txt"
+            CURRENT_VER=$(sed -n '1p' "${VERSION_FILE}" | tr -d '[:space:]')
+            LAST_PROCESSED=$(sed -n '2p' "${VERSION_FILE}" | tr -d '[:space:]')
+            echo "Current version: ${CURRENT_VER}"
+            echo "Last processed upstream: ${LAST_PROCESSED}"
+
+            if [[ -z "${CURRENT_VER}" || -z "${LAST_PROCESSED}" ]]; then
+              echo "ERROR: could not read version.txt for ${LANGUAGE}"
+              continue
+            fi
 
             if [[ "${LATEST_UPSTREAM}" == "${LAST_PROCESSED}" ]]; then
               echo "No new release for ${LANGUAGE}"
@@ -126,12 +133,6 @@ jobs:
               continue
             fi
 
-            VERSION_FILE="${LANGUAGE}/version.txt"
-            CURRENT_VER=$(cat "${VERSION_FILE}" | tr -d '[:space:]')
-            if [[ -z "${CURRENT_VER}" ]]; then
-              echo "ERROR: could not read version from ${VERSION_FILE}"
-              continue
-            fi
             NEXT_VER=$(minor_bump "${CURRENT_VER}")
             echo "Version bump: ${CURRENT_VER} -> ${NEXT_VER}"
 
