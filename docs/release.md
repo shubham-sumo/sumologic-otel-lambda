@@ -22,9 +22,9 @@ The upstream tag prefixes are:
 - NodeJS: `layer-nodejs/`
 - Python: `layer-python/`
 
-Submodule pinning is not part of this automation yet. The selected upstream tag
-is recorded as release metadata, but the prepare workflow does not change the
-`opentelemetry-lambda` gitlink.
+Every prepare workflow pins the shared `opentelemetry-lambda` gitlink to the
+selected language-specific upstream tag before deriving component versions. The
+prepare pull request records both that tag and its resolved immutable commit SHA.
 
 ## Prepare a release
 
@@ -47,6 +47,7 @@ The workflow opens `prepare-<language>-v<version>` with these changes:
 - `<language>/sample-apps/template.yaml`
 - `<language>/README.md`
 - root `README.md`
+- `opentelemetry-lambda` gitlink
 
 The changelog fragment prevents concurrent release preparations from editing
 `CHANGELOG.md`. Before merging the pull request:
@@ -57,11 +58,17 @@ The changelog fragment prevents concurrent release preparations from editing
 4. Verify the layer version in `<language>/sample-apps/template.yaml`.
 5. Verify the version in the title of `<language>/README.md`.
 6. Verify the root README release link and component versions.
-7. Resolve any normal pull-request conflict, including a shared root README
-   conflict caused by another release merged on the same day.
+7. Verify that `opentelemetry-lambda` points to the upstream tag and commit SHA
+   listed in the pull request.
+8. Resolve any normal pull-request conflict, including the shared root README
+   or submodule gitlink conflicts caused by another release merged first. Keep
+   the upstream pin selected for the pull request being merged, then recheck the
+   generated component versions.
 
 Only one open prepare pull request is allowed per language. An open Java
-prepare pull request does not block NodeJS or Python preparation.
+prepare pull request does not block NodeJS or Python preparation. Concurrent
+language releases may point the shared submodule at different commits, so the
+later pull request may require conflict resolution before merge.
 
 ## Automatic post-merge flow
 
