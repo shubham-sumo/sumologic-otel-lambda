@@ -6,6 +6,7 @@ on:
     branches: [main]
 
 permissions:
+  actions: write
   contents: write
   pull-requests: read
 
@@ -92,3 +93,10 @@ jobs:
           git commit -m "release: ${TAG}"
           git tag -m "${TAG}" "${TAG}"
           git push --atomic origin main "${TAG}"
+
+      - name: Dispatch release build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LANGUAGE: ${{ steps.parse.outputs.language }}
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: gh workflow run "release-build-${LANGUAGE}.yml" --ref "${TAG}"

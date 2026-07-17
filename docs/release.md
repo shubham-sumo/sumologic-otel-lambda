@@ -79,10 +79,11 @@ Merging a prepare pull request triggers the following sequence:
    `CHANGELOG.md` and deletes the fragment.
 3. It commits the assembled changelog and creates
    `<language>-v<version>` at that commit.
-4. It pushes the release tag. Because this push uses `GITHUB_TOKEN`, it does
-   not automatically start the unchanged tag-push-only release-build workflow.
-5. Start the existing release-build workflow through the repository's current
-   release procedure. It creates artifacts, publishes Lambda layers, and
+4. It atomically pushes `main` and the release tag, then explicitly dispatches
+   the matching `release-build-<language>.yml` workflow at that tag. Explicit
+   dispatch is required because tag pushes made with `GITHUB_TOKEN` do not
+   start downstream push-triggered workflows.
+5. The release-build workflow creates artifacts, publishes Lambda layers, and
    creates a GitHub pre-release containing the ARN tables and release artifacts.
 6. Review the pre-release. The GitHub release remains a pre-release.
 7. When ready to publish, open the pre-release on the GitHub Releases page,
@@ -97,7 +98,8 @@ Final promotion is a manual GitHub UI step.
   `Release Prepare` again.
 - If changelog assembly fails, restore or correct the expected fragment or the
   `All notable changes` anchor before rerunning the merge-triggered workflow.
-- If a tag exists but its build did not start, use the repository's current
-  release procedure to start the existing tag-push-only build workflow.
+- If a tag exists but its build did not start or must be retried, dispatch the
+  matching `release-build-<language>.yml` workflow with the existing release
+  tag as its ref.
 
 Do not promote the pre-release before its contents have been reviewed.

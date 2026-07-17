@@ -172,9 +172,9 @@ jobs:
 
           1. **Changelog assembled** — the fragment is inserted into \`CHANGELOG.md\` and deleted
           2. **Tag created** — \`${LANGUAGE}-v${VERSION}\` is created from the assembled changelog commit
-          3. **Release tag pushed** — the tag is pushed after changelog assembly
-          4. **Build remains separate** — the unchanged release-build workflow is tag-push-only and is not automatically started by the GitHub token used here
-          5. **Manual promotion** — after the existing release build creates the pre-release, review and promote it from the GitHub Releases page
+          3. **Release build dispatched** — the matching language build workflow is started at the new tag
+          4. **Pre-release created** — artifacts are built, Lambda layers are published, and a GitHub pre-release is created
+          5. **Manual promotion** — review and promote the pre-release from the GitHub Releases page
           BODY
           )" \
             --base main \
