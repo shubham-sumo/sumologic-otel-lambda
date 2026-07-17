@@ -4,6 +4,21 @@ on:
   schedule:
     - cron: '7 9 * * 1'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "If true, detect releases but don't trigger prepare workflow"
+        required: false
+        type: boolean
+        default: true
+      language:
+        description: "Only check this language (leave empty to check all)"
+        required: false
+        type: choice
+        options:
+          - ''
+          - java
+          - nodejs
+          - python
 
 permissions:
   contents: read
@@ -20,6 +35,8 @@ jobs:
       - name: Check for new upstream releases
         env:
           GH_TOKEN: ${{ github.token }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          FILTER_LANGUAGE: ${{ inputs.language || '' }}
         run: |
           set -euo pipefail
 
@@ -68,7 +85,12 @@ jobs:
 
           TRIGGERED=()
 
-          for LANGUAGE in java nodejs python; do
+          LANGUAGES=(java nodejs python)
+          if [[ -n "${FILTER_LANGUAGE}" ]]; then
+            LANGUAGES=("${FILTER_LANGUAGE}")
+          fi
+
+          for LANGUAGE in "${LANGUAGES[@]}"; do
             PREFIX="${TAG_PREFIX[${LANGUAGE}]}"
 
             echo "--- Checking ${LANGUAGE} (prefix: ${PREFIX}) ---"
@@ -119,11 +141,15 @@ jobs:
             NEXT_VER=$(minor_bump "${CURRENT_VER}")
             echo "Version bump: ${CURRENT_VER} -> ${NEXT_VER}"
 
-            echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
-            gh workflow run release-prepare.yml \
-              -f language="${LANGUAGE}" \
-              -f version="${NEXT_VER}" \
-              -f otel_lambda_tag="${LATEST_UPSTREAM}"
+            if [[ "${DRY_RUN}" == "true" ]]; then
+              echo "[DRY RUN] Would trigger release-prepare for ${LANGUAGE} v${NEXT_VER} with tag ${LATEST_UPSTREAM}"
+            else
+              echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
+              gh workflow run release-prepare.yml \
+                -f language="${LANGUAGE}" \
+                -f version="${NEXT_VER}" \
+                -f otel_lambda_tag="${LATEST_UPSTREAM}"
+            fi
 
             TRIGGERED+=("${LANGUAGE}-v${NEXT_VER}")
           done
