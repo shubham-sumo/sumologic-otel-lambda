@@ -84,8 +84,9 @@ jobs:
       - name: Commit changes
         run: |
           git add \
-            .github/upstream-releases.json \
-            CHANGELOG.md \
+            ".github/upstream-release-${LANGUAGE}.txt" \
+            "changelog/${LANGUAGE}-v${VERSION}.md" \
+            "${LANGUAGE}/version.txt" \
             README.md \
             "${LANGUAGE}/layer-data.sh" \
             "${LANGUAGE}/sample-apps/template.yaml" \

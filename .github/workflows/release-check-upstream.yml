@@ -29,8 +29,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Check for new upstream releases
         env:
@@ -41,7 +39,6 @@ jobs:
           set -euo pipefail
 
           UPSTREAM="https://github.com/open-telemetry/opentelemetry-lambda.git"
-          TRACKING_FILE=".github/upstream-releases.json"
 
           declare -A TAG_PREFIX=(
             [java]="layer-javaagent"
@@ -102,7 +99,8 @@ jobs:
             fi
             echo "Latest upstream: ${LATEST_UPSTREAM}"
 
-            LAST_PROCESSED=$(jq -r ".${LANGUAGE}" "${TRACKING_FILE}")
+            TRACKING_FILE=".github/upstream-release-${LANGUAGE}.txt"
+            LAST_PROCESSED=$(cat "${TRACKING_FILE}" | tr -d '[:space:]')
             echo "Last processed: ${LAST_PROCESSED}"
 
             if [[ "${LATEST_UPSTREAM}" == "${LAST_PROCESSED}" ]]; then
@@ -128,16 +126,12 @@ jobs:
               continue
             fi
 
-            LATEST_TAG=$(
-              git tag -l "${LANGUAGE}-v*" \
-              | sort -V \
-              | tail -1
-            )
-            if [[ -z "${LATEST_TAG}" ]]; then
-              echo "ERROR: No existing tags for ${LANGUAGE}"
+            VERSION_FILE="${LANGUAGE}/version.txt"
+            CURRENT_VER=$(cat "${VERSION_FILE}" | tr -d '[:space:]')
+            if [[ -z "${CURRENT_VER}" ]]; then
+              echo "ERROR: could not read version from ${VERSION_FILE}"
               continue
             fi
-            CURRENT_VER="${LATEST_TAG#"${LANGUAGE}"-v}"
             NEXT_VER=$(minor_bump "${CURRENT_VER}")
             echo "Version bump: ${CURRENT_VER} -> ${NEXT_VER}"
 

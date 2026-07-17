@@ -1,0 +1,67 @@
+name: Release Tag
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  create-tag:
+    if: >-
+      github.event.pull_request.merged == true &&
+      (startsWith(
+        github.event.pull_request.head.ref,
+        'prepare-java-v') ||
+      startsWith(
+        github.event.pull_request.head.ref,
+        'prepare-nodejs-v') ||
+      startsWith(
+        github.event.pull_request.head.ref,
+        'prepare-python-v'))
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Extract tag from branch name
+        id: parse
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          TAG="${BRANCH#prepare-}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email \
+            "github-actions[bot]@users.noreply.github.com"
+
+      - name: Assemble changelog fragment
+        env:
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: |
+          FRAGMENT="changelog/${TAG}.md"
+          if [[ -f "${FRAGMENT}" ]]; then
+            if grep -q '^All notable changes' CHANGELOG.md; then
+              sed -i "/^All notable changes/r ${FRAGMENT}" CHANGELOG.md
+              rm "${FRAGMENT}"
+              git add CHANGELOG.md "${FRAGMENT}"
+              git commit -m "docs: add ${TAG} changelog entry"
+            else
+              echo "WARNING: could not find anchor in CHANGELOG.md, skipping assembly"
+            fi
+          else
+            echo "No changelog fragment found for ${TAG}, skipping"
+          fi
+
+      - name: Create and push tag
+        env:
+          TAG: ${{ steps.parse.outputs.tag }}
+        run: |
+          git tag -m "${TAG}" "${TAG}"
+          git push origin main "${TAG}"
