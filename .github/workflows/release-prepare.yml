@@ -97,6 +97,14 @@ jobs:
       - name: Create branch
         run: git checkout -b "${BRANCH}"
 
+      - name: Pin opentelemetry-lambda release
+        id: submodule
+        run: |
+          git -C opentelemetry-lambda fetch --tags origin
+          git -C opentelemetry-lambda checkout --detach "${OTEL_LAMBDA_TAG}"
+          echo "commit=$(git -C opentelemetry-lambda rev-parse HEAD)" \
+            >> "$GITHUB_OUTPUT"
+
       - name: Run prepare script
         run: ./ci/release-prepare.sh
 
@@ -108,7 +116,8 @@ jobs:
             "${LANGUAGE}/layer-data.sh" \
             "${LANGUAGE}/sample-apps/template.yaml" \
             "${LANGUAGE}/README.md" \
-            README.md
+            README.md \
+            opentelemetry-lambda
           COMMIT_MSG="feat: prepare release ${LANGUAGE} v${VERSION}"
           git commit -m "${COMMIT_MSG}"
 
@@ -134,10 +143,10 @@ jobs:
             --body "$(cat <<BODY
           Automated release preparation for \`${LANGUAGE}-v${VERSION}\`.
 
-          ### Release metadata
+          ### Upstream submodule reference
 
-          - **Upstream release tag:** [\`${OTEL_LAMBDA_TAG}\`](${UPSTREAM_REPO}/releases/tag/${OTEL_LAMBDA_TAG})
-          - **Submodule pinning:** deferred; this PR records the upstream release tag but does not change \`opentelemetry-lambda\`
+          - **Release tag:** [\`${OTEL_LAMBDA_TAG}\`](${UPSTREAM_REPO}/releases/tag/${OTEL_LAMBDA_TAG})
+          - **Commit:** [\`${{ steps.submodule.outputs.commit }}\`](${UPSTREAM_REPO}/commit/${{ steps.submodule.outputs.commit }})
 
           ### Changes in this PR
 
@@ -145,7 +154,8 @@ jobs:
           - \`${LANGUAGE}/layer-data.sh\` — updates the layer version and release branch link
           - \`${LANGUAGE}/sample-apps/template.yaml\` — updates the sample layer version
           - \`${LANGUAGE}/README.md\` — updates the release version in the title
-          - \`README.md\` — updates the latest layer link and detected component versions
+          - \`README.md\` — updates the latest layer link and component versions detected from the pinned submodule
+          - \`opentelemetry-lambda\` — pins the selected upstream release tag and commit
           - \`changelog/${LANGUAGE}-v${VERSION}.md\` — adds the release changelog fragment
 
           ### Pre-merge checklist
@@ -155,6 +165,7 @@ jobs:
           - [ ] Verify \`${LANGUAGE}/layer-data.sh\` and \`${LANGUAGE}/sample-apps/template.yaml\`
           - [ ] Verify the version in the title of \`${LANGUAGE}/README.md\`
           - [ ] Verify \`README.md\` component versions and release link
+          - [ ] Verify \`opentelemetry-lambda\` points to the upstream tag and commit listed above
           - [ ] Approve this PR
 
           ### What happens automatically after merge
