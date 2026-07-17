@@ -53,17 +53,16 @@ if not arm64_table:
 with open(readme_path) as f:
     content = f.read()
 
-if "unreleased version" not in content:
-    print(f"ERROR: 'unreleased version' not found in {readme_path}",
+title_pattern = re.compile(
+    r"^(# .*?)(?:unreleased version|v\d+\.\d+\.\d+)(.*)$",
+    re.MULTILINE,
+)
+if not title_pattern.search(content):
+    print(f"ERROR: release version not found in title of {readme_path}",
           file=sys.stderr)
     sys.exit(1)
 
-content = re.sub(
-    r"unreleased version",
-    f"v{version}",
-    content,
-    count=1,
-)
+content = title_pattern.sub(rf"\g<1>v{version}\g<2>", content, count=1)
 
 def replace_section(text, heading, new_table):
     lines = text.splitlines()

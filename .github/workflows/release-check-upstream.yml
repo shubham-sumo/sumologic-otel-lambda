@@ -23,14 +23,13 @@ on:
 permissions:
   contents: read
   actions: write
+  pull-requests: read
 
 jobs:
   check:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Check for new upstream releases
         env:
@@ -41,7 +40,6 @@ jobs:
           set -euo pipefail
 
           UPSTREAM="https://github.com/open-telemetry/opentelemetry-lambda.git"
-          TRACKING_FILE=".github/upstream-releases.json"
 
           declare -A TAG_PREFIX=(
             [java]="layer-javaagent"
@@ -102,8 +100,16 @@ jobs:
             fi
             echo "Latest upstream: ${LATEST_UPSTREAM}"
 
-            LAST_PROCESSED=$(jq -r ".${LANGUAGE}" "${TRACKING_FILE}")
-            echo "Last processed: ${LAST_PROCESSED}"
+            VERSION_FILE="${LANGUAGE}/version.txt"
+            CURRENT_VER=$(grep '^current_version=' "${VERSION_FILE}" | cut -d= -f2-)
+            LAST_PROCESSED=$(grep '^upstream_release_tag=' "${VERSION_FILE}" | cut -d= -f2-)
+            echo "Current version: ${CURRENT_VER}"
+            echo "Last processed upstream: ${LAST_PROCESSED}"
+
+            if [[ -z "${CURRENT_VER}" || -z "${LAST_PROCESSED}" ]]; then
+              echo "ERROR: could not read named values from ${VERSION_FILE}"
+              continue
+            fi
 
             if [[ "${LATEST_UPSTREAM}" == "${LAST_PROCESSED}" ]]; then
               echo "No new release for ${LANGUAGE}"
@@ -119,38 +125,29 @@ jobs:
 
             echo "New release detected: ${LATEST_UPSTREAM} > ${LAST_PROCESSED}"
 
-            EXISTING_BRANCH=$(
-              git ls-remote --heads origin "refs/heads/prepare-${LANGUAGE}-v*" \
-              | head -1 || true
-            )
-            if [[ -n "${EXISTING_BRANCH}" ]]; then
-              echo "Skipping ${LANGUAGE}: prepare branch already exists"
+            EXISTING_PR=$(gh pr list \
+              --state open \
+              --base main \
+              --json number,headRefName \
+              --jq "map(select(.headRefName | startswith(\"prepare-${LANGUAGE}-v\")))[0].number // empty")
+            if [[ -n "${EXISTING_PR}" ]]; then
+              echo "Skipping ${LANGUAGE}: open prepare PR #${EXISTING_PR} exists"
               continue
             fi
 
-            LATEST_TAG=$(
-              git tag -l "${LANGUAGE}-v*" \
-              | sort -V \
-              | tail -1
-            )
-            if [[ -z "${LATEST_TAG}" ]]; then
-              echo "ERROR: No existing tags for ${LANGUAGE}"
-              continue
-            fi
-            CURRENT_VER="${LATEST_TAG#"${LANGUAGE}"-v}"
             NEXT_VER=$(minor_bump "${CURRENT_VER}")
             echo "Version bump: ${CURRENT_VER} -> ${NEXT_VER}"
 
             if [[ "${DRY_RUN}" == "true" ]]; then
               echo "[DRY RUN] Would trigger release-prepare for ${LANGUAGE} v${NEXT_VER} with tag ${LATEST_UPSTREAM}"
-            else
-              echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
-              gh workflow run release-prepare.yml \
-                -f language="${LANGUAGE}" \
-                -f version="${NEXT_VER}" \
-                -f otel_lambda_tag="${LATEST_UPSTREAM}"
+              continue
             fi
 
+            echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
+            gh workflow run release-prepare.yml \
+              -f language="${LANGUAGE}" \
+              -f version="${NEXT_VER}" \
+              -f otel_lambda_tag="${LATEST_UPSTREAM}"
             TRIGGERED+=("${LANGUAGE}-v${NEXT_VER}")
           done
 
@@ -160,5 +157,5 @@ jobs:
             printf '  %s\n' "${TRIGGERED[@]}"
           else
             echo ""
-            echo "=== No new releases detected ==="
+            echo "=== No release workflows triggered ==="
           fi

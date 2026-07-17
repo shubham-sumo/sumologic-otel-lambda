@@ -13,7 +13,7 @@ DATE="$(date +%Y-%m-%d)"
 
 LAYER_DATA="${LANGUAGE}/layer-data.sh"
 TEMPLATE="${LANGUAGE}/sample-apps/template.yaml"
-TRACKING_FILE=".github/upstream-releases.json"
+VERSION_FILE="${LANGUAGE}/version.txt"
 
 cleanup() { find . -maxdepth 3 -name '*.bak' -delete; }
 trap cleanup EXIT
@@ -24,10 +24,10 @@ if [[ -z "${OLD_VERSION_DASHED}" ]]; then
   exit 1
 fi
 
-# --- Update CHANGELOG.md ---
+# --- Create changelog fragment (avoids CHANGELOG.md merge conflicts) ---
 
-cat > /tmp/changelog_block.md <<EOF
-
+mkdir -p changelog
+cat > "changelog/${TAG}.md" <<EOF
 ## [${TAG}]
 
 ### Released ${DATE}
@@ -39,11 +39,10 @@ cat > /tmp/changelog_block.md <<EOF
 [${TAG}]: https://github.com/SumoLogic/sumologic-otel-lambda/releases/tag/${TAG}
 EOF
 
-if ! grep -q '^All notable changes' CHANGELOG.md; then
-  echo "ERROR: could not find 'All notable changes' header in CHANGELOG.md" >&2
-  exit 1
-fi
-sed -i.bak "/^All notable changes/r /tmp/changelog_block.md" CHANGELOG.md
+# --- Update version.txt ---
+
+printf 'current_version=%s\nupstream_release_tag=%s\n' \
+  "${VERSION}" "${OTEL_LAMBDA_TAG}" > "${VERSION_FILE}"
 
 # --- Update layer-data.sh ---
 
@@ -124,12 +123,5 @@ case "${LANGUAGE}" in
     sed -i.bak "/Java wrapper/s|Collector \`v[^\`]*\`|Collector \`${COLLECTOR_VERSION}\`|" README.md
     ;;
 esac
-
-# --- Update upstream tracking file ---
-
-TMP_TRACKING=$(mktemp)
-jq --arg lang "${LANGUAGE}" --arg tag "${OTEL_LAMBDA_TAG}" \
-  '.[$lang] = $tag' "${TRACKING_FILE}" > "${TMP_TRACKING}"
-mv "${TMP_TRACKING}" "${TRACKING_FILE}"
 
 echo "Release preparation complete for ${TAG}"
