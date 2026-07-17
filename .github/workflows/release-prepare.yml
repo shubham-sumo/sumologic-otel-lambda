@@ -70,10 +70,12 @@ jobs:
         run: git checkout -b "${BRANCH}"
 
       - name: Update submodule to otel-lambda release
+        id: submodule
         run: |
           cd opentelemetry-lambda
           git fetch --tags origin
           git checkout "${{ inputs.otel_lambda_tag }}"
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           cd ..
 
       - name: Run prepare script
@@ -107,11 +109,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          SUBMODULE_COMMIT="${{ steps.submodule.outputs.commit }}"
+          UPSTREAM_REPO="https://github.com/open-telemetry/opentelemetry-lambda"
           gh pr create \
             --title "feat: prepare release ${LANGUAGE} v${VERSION}" \
             --body "Automated release preparation for \`${LANGUAGE}-v${VERSION}\`.
 
-          opentelemetry-lambda submodule pinned to: \`${{ inputs.otel_lambda_tag }}\`
+          ### Submodule reference
+
+          - **Tag:** [\`${{ inputs.otel_lambda_tag }}\`](${UPSTREAM_REPO}/releases/tag/${{ inputs.otel_lambda_tag }})
+          - **Commit:** [\`${SUBMODULE_COMMIT:0:12}\`](${UPSTREAM_REPO}/commit/${SUBMODULE_COMMIT})
 
           ### Pre-merge checklist
 
