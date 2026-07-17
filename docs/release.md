@@ -73,16 +73,23 @@ Merging a prepare pull request triggers the following sequence:
 4. It explicitly dispatches the matching language build workflow at the tag.
    The dispatch-capable build workflows must already be present on `main` before
    the first automated release is merged.
-5. The build workflow creates artifacts, publishes Lambda layers, and creates
-   a GitHub pre-release containing the reviewed changelog and layer ARN tables.
-6. A successful build opens `release-<language>-v<version>`, updating the
-   language README with the published ARN tables and release download links.
-7. Merging that release pull request promotes the pre-release to a full,
-   latest GitHub release.
+5. The build workflow identifies the previous tag for the same language and
+   asks GitHub to generate release notes for that tag range. It creates
+   artifacts, publishes Lambda layers, and creates a GitHub pre-release with
+   those generated notes and the layer ARN tables. The reviewed changelog
+   fragment remains the source for the repository `CHANGELOG.md`.
+6. A successful build creates and pushes `release-<language>-v<version>`.
+   That branch updates the language README title from `unreleased version` (or
+   its previous version) to the new version. No pull request is opened for this
+   branch.
+7. Review the pre-release and the pushed release branch. The GitHub release
+   remains a pre-release.
+8. When ready to publish, open the pre-release on the GitHub Releases page,
+   edit it, clear the pre-release setting, mark it as the latest release, and
+   publish it.
 
-Finalization is idempotent: rerunning a successful release build does not open
-a duplicate release pull request, and promoting an already published release
-succeeds without changing it again.
+Finalization is idempotent: rerunning it does not recreate an existing release
+branch. Final promotion is a manual GitHub UI step.
 
 ## Recovery
 
@@ -92,8 +99,8 @@ succeeds without changing it again.
   `All notable changes` anchor before rerunning the merge-triggered workflow.
 - If a tag exists but its build did not start, dispatch the matching
   `release-build-<language>.yml` workflow using the release tag as its ref.
-- If ARN finalization fails, dispatch `release-finalize.yml` with the release
-  tag after correcting the failure.
+- If release-branch finalization fails, dispatch `release-finalize.yml` with
+  the release tag after correcting the failure.
 
-Do not manually publish the GitHub pre-release before the generated release
-pull request has merged.
+Do not promote the pre-release before the pre-release contents and generated
+release branch have been reviewed.

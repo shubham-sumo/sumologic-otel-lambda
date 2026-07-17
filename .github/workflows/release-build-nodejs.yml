@@ -4,29 +4,9 @@ on:
   push:
     tags:
       - 'nodejs-v[0-9]+.[0-9]+.[0-9]+'
-  workflow_dispatch:
-
-permissions:
-  actions: write
-  contents: write
-  id-token: write
 
 jobs:
-  validate-tag:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Validate release tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          if [[ "${{ github.ref_type }}" != "tag" ]] || \
-             ! [[ "${TAG}" =~ ^nodejs-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::Run this workflow from a nodejs-vX.Y.Z tag"
-            exit 1
-          fi
-
   build-release-artifacts:
-    needs: validate-tag
     uses: ./.github/workflows/build-artifacts.yml
     with:
       BUILD_COMMAND: make build-nodejs
@@ -47,27 +27,9 @@ jobs:
     name: Create Release
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.ref_name }}
-
-      - name: Extract release details
-        id: release
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          echo "version=${TAG#nodejs-v}" >> "$GITHUB_OUTPUT"
-          python3 - "${TAG}" >> "$GITHUB_ENV" <<'PY'
-          import sys
-
-          tag = sys.argv[1]
-          lines = open("CHANGELOG.md").read().splitlines()
-          start = next(i for i, line in enumerate(lines) if line == f"## [{tag}]")
-          end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## [")), len(lines))
-          print("RELEASE_CHANGELOG<<EOF")
-          print("\n".join(lines[start + 1:end]).strip())
-          print("EOF")
-          PY
+      - name: Extract tag
+        id: extract_tag
+        run: echo "::set-output name=tag::$(echo ${GITHUB_REF#refs/tags/nodejs-v})"
       - name: Download amd64 layer artifacts
         uses: actions/download-artifact@v4
         with:
@@ -138,11 +100,10 @@ jobs:
           omitNameDuringUpdate: true
 
           body: |
-            ## Sumo Logic OTel NodeJS AWS Lambda Layer version: ${{ steps.release.outputs.version }}
+            ## Sumo Logic OTel NodeJS AWS Lambda Layer version: ${{ steps.extract_tag.outputs.tag }}
 
             ## Changelog
-
-            ${{ env.RELEASE_CHANGELOG }}
+            **TODO**
 
             For more details please see [README.md](https://github.com/SumoLogic-Labs/sumo-opentelemetry-lambda/tree/release-${{ github.ref_name }})
 
@@ -160,11 +121,3 @@ jobs:
           artifacts: "artifacts/opentelemetry-nodejs-amd64.zip,artifacts/opentelemetry-nodejs-arm64.zip,artifacts/nodejs-sample-app.zip"
           artifactErrorsFailBuild: true
           replacesArtifacts: true
-
-      - name: Create release documentation pull request
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh workflow run release-finalize.yml \
-            --ref main \
-            -f tag="${{ github.ref_name }}"

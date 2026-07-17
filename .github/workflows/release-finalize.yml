@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to finalize"
+        description: "Pre-release tag to finalize"
         required: true
         type: string
 
 permissions:
   contents: write
-  pull-requests: write
 
 concurrency:
   group: release-finalize-${{ inputs.tag }}
@@ -37,98 +36,45 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "release_branch=release-${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Check for existing release pull request
-        id: existing
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
-        run: |
-          PR_URL=$(gh pr list \
-            --repo "${GITHUB_REPOSITORY}" \
-            --state all \
-            --base main \
-            --head "${RELEASE_BRANCH}" \
-            --json url \
-            --jq '.[0].url // empty')
-          if [[ -n "${PR_URL}" ]]; then
-            echo "Release pull request already exists or was completed: ${PR_URL}"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
       - uses: actions/checkout@v4
-        if: steps.existing.outputs.skip != 'true'
         with:
           ref: main
           fetch-depth: 0
 
       - name: Configure git
-        if: steps.existing.outputs.skip != 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email \
             "github-actions[bot]@users.noreply.github.com"
 
       - name: Create release branch
-        if: steps.existing.outputs.skip != 'true'
+        id: branch
         env:
           RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
         run: |
           if git ls-remote --exit-code --heads origin "${RELEASE_BRANCH}"; then
-            echo "::error::Branch ${RELEASE_BRANCH} exists without an open PR"
-            exit 1
+            echo "Release branch ${RELEASE_BRANCH} already exists"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            git checkout -b "${RELEASE_BRANCH}"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-          git checkout -b "${RELEASE_BRANCH}"
 
-      - name: Update README with ARN tables
-        if: steps.existing.outputs.skip != 'true'
+      - name: Update language README title
+        if: steps.branch.outputs.exists != 'true'
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.parse.outputs.tag }}
           LANGUAGE: ${{ steps.parse.outputs.language }}
           VERSION: ${{ steps.parse.outputs.version }}
         run: ./ci/release-finalize.sh
 
-      - uses: actions/setup-node@v4
-        if: steps.existing.outputs.skip != 'true'
-
-      - name: Format markdown tables
-        if: steps.existing.outputs.skip != 'true'
-        env:
-          LANGUAGE: ${{ steps.parse.outputs.language }}
-        run: |
-          npm install --no-save markdown-table-formatter
-          ./node_modules/.bin/markdown-table-formatter \
-            "${LANGUAGE}/README.md"
-
-      - name: Commit and push release branch
-        if: steps.existing.outputs.skip != 'true'
+      - name: Push release branch
+        if: steps.branch.outputs.exists != 'true'
         env:
           TAG: ${{ steps.parse.outputs.tag }}
           LANGUAGE: ${{ steps.parse.outputs.language }}
           RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
         run: |
           git add "${LANGUAGE}/README.md"
-          git commit -m "docs: update ${LANGUAGE} layer ARNs for ${TAG}"
+          git commit -m "docs: update ${LANGUAGE} README for ${TAG}"
           git push origin "${RELEASE_BRANCH}"
-
-      - name: Create pull request
-        if: steps.existing.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.parse.outputs.tag }}
-          LANGUAGE: ${{ steps.parse.outputs.language }}
-          RELEASE_BRANCH: ${{ steps.parse.outputs.release_branch }}
-        run: |
-          REPO="${GITHUB_REPOSITORY}"
-          BODY="Updates \`${LANGUAGE}/README.md\` with layer ARNs "
-          BODY+="from the [pre-release]"
-          BODY+="(https://github.com/${REPO}/releases/tag/${TAG})."
-          BODY+=$'\n\n'
-          BODY+="Merging promotes the pre-release to a full release."
-          gh pr create \
-            --title "docs: release ${TAG}" \
-            --body "${BODY}" \
-            --base main \
-            --head "${RELEASE_BRANCH}"

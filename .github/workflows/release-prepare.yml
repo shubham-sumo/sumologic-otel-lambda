@@ -160,9 +160,9 @@ jobs:
           2. **Tag created** — \`${LANGUAGE}-v${VERSION}\` is created from the assembled changelog commit
           3. **Release build dispatched** — the matching language workflow runs at the release tag
           4. **Layers published** — layer artifacts are built and published to supported AWS regions
-          5. **Pre-release created** — GitHub receives the reviewed changelog, ARN tables, and artifacts
-          6. **Release PR created** — \`release-${LANGUAGE}-v${VERSION}\` updates \`${LANGUAGE}/README.md\` with published ARNs
-          7. **Release promoted** — merging that release PR converts the pre-release to a full release
+          5. **Pre-release created** — GitHub receives generated release notes, ARN tables, and artifacts
+          6. **Release branch pushed** — \`release-${LANGUAGE}-v${VERSION}\` updates the version in the title of \`${LANGUAGE}/README.md\`; no PR is opened
+          7. **Manual promotion** — after reviewing the pre-release and release branch, promote the pre-release from the GitHub Releases page
           BODY
           )" \
             --base main \
