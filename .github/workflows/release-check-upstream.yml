@@ -1,0 +1,138 @@
+name: Check Upstream Releases
+
+on:
+  schedule:
+    - cron: '7 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for new upstream releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          UPSTREAM="https://github.com/open-telemetry/opentelemetry-lambda.git"
+          TRACKING_FILE=".github/upstream-releases.json"
+
+          declare -A TAG_PREFIX=(
+            [java]="layer-javaagent"
+            [nodejs]="layer-nodejs"
+            [python]="layer-python"
+          )
+
+          semver_gt() {
+            local lhs="$1" rhs="$2"
+            if [[ "${lhs}" == "${rhs}" ]]; then
+              return 1
+            fi
+            local IFS='.'
+            read -ra L <<< "${lhs}"
+            read -ra R <<< "${rhs}"
+            for i in 0 1 2; do
+              if (( ${L[$i]:-0} > ${R[$i]:-0} )); then
+                return 0
+              elif (( ${L[$i]:-0} < ${R[$i]:-0} )); then
+                return 1
+              fi
+            done
+            return 1
+          }
+
+          minor_bump() {
+            local ver="$1"
+            local IFS='.'
+            read -ra parts <<< "${ver}"
+            echo "${parts[0]}.$(( parts[1] + 1 )).0"
+          }
+
+          latest_upstream_tag() {
+            local prefix="$1"
+            git ls-remote --tags "${UPSTREAM}" "refs/tags/${prefix}/*" \
+              | sed 's|.*refs/tags/||' \
+              | grep -v '\^{}' \
+              | sort -t/ -k2 -V \
+              | tail -1
+          }
+
+          TRIGGERED=()
+
+          for LANGUAGE in java nodejs python; do
+            PREFIX="${TAG_PREFIX[${LANGUAGE}]}"
+
+            echo "--- Checking ${LANGUAGE} (prefix: ${PREFIX}) ---"
+
+            LATEST_UPSTREAM=$(latest_upstream_tag "${PREFIX}")
+            if [[ -z "${LATEST_UPSTREAM}" ]]; then
+              echo "WARNING: No upstream tags found for ${PREFIX}"
+              continue
+            fi
+            echo "Latest upstream: ${LATEST_UPSTREAM}"
+
+            LAST_PROCESSED=$(jq -r ".${LANGUAGE}" "${TRACKING_FILE}")
+            echo "Last processed: ${LAST_PROCESSED}"
+
+            if [[ "${LATEST_UPSTREAM}" == "${LAST_PROCESSED}" ]]; then
+              echo "No new release for ${LANGUAGE}"
+              continue
+            fi
+
+            UPSTREAM_VER="${LATEST_UPSTREAM#"${PREFIX}/"}"
+            PROCESSED_VER="${LAST_PROCESSED#"${PREFIX}/"}"
+            if ! semver_gt "${UPSTREAM_VER}" "${PROCESSED_VER}"; then
+              echo "Upstream ${UPSTREAM_VER} is not newer than ${PROCESSED_VER}"
+              continue
+            fi
+
+            echo "New release detected: ${LATEST_UPSTREAM} > ${LAST_PROCESSED}"
+
+            EXISTING_BRANCH=$(
+              git ls-remote --heads origin "refs/heads/prepare-${LANGUAGE}-v*" \
+              | head -1 || true
+            )
+            if [[ -n "${EXISTING_BRANCH}" ]]; then
+              echo "Skipping ${LANGUAGE}: prepare branch already exists"
+              continue
+            fi
+
+            LATEST_TAG=$(
+              git tag -l "${LANGUAGE}-v*" \
+              | sort -V \
+              | tail -1
+            )
+            if [[ -z "${LATEST_TAG}" ]]; then
+              echo "ERROR: No existing tags for ${LANGUAGE}"
+              continue
+            fi
+            CURRENT_VER="${LATEST_TAG#"${LANGUAGE}"-v}"
+            NEXT_VER=$(minor_bump "${CURRENT_VER}")
+            echo "Version bump: ${CURRENT_VER} -> ${NEXT_VER}"
+
+            echo "Triggering release-prepare for ${LANGUAGE} v${NEXT_VER}"
+            gh workflow run release-prepare.yml \
+              -f language="${LANGUAGE}" \
+              -f version="${NEXT_VER}" \
+              -f otel_lambda_tag="${LATEST_UPSTREAM}"
+
+            TRIGGERED+=("${LANGUAGE}-v${NEXT_VER}")
+          done
+
+          if [[ ${#TRIGGERED[@]} -gt 0 ]]; then
+            echo ""
+            echo "=== Triggered releases ==="
+            printf '  %s\n' "${TRIGGERED[@]}"
+          else
+            echo ""
+            echo "=== No new releases detected ==="
+          fi
